@@ -152,7 +152,8 @@ async def study_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not materials:
             await query.edit_message_text("No materials available for that unit yet.")
             return
-        # Store unit context now so it's available throughout the session
+        # Store unit ID and context so they're available throughout the session
+        context.user_data["current_unit_id"] = unit_id
         context.user_data["unit_context"] = study.get_unit_context(unit_id)
         keyboard = [
             [InlineKeyboardButton(m["title"], callback_data=f"study_mat_{unit_id}_{m['id']}")]
@@ -364,10 +365,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             unit_parts.append(f"Featured artwork for this unit: {unit_ctx['artwork']}")
         unit_header = "\n".join(unit_parts)
 
+        # Cumulative skills: all skills taught up to this unit, with lesson content
+        unit_id = context.user_data.get("current_unit_id", "")
+        skill_texts = study.get_cumulative_skill_texts(unit_id) if unit_id else []
+        if skill_texts:
+            skills_block = "\n\n".join(
+                f"### {name}\n{text}" for name, text in skill_texts
+            )
+            skills_section = (
+                "Skills taught so far in this course — reinforce these naturally "
+                "in your responses, especially when helping the student speak or write:\n\n"
+                + skills_block
+            )
+        else:
+            skills_section = ""
+
         purpose_note = f"\nThe student is reading this because: {study_purpose}" if study_purpose else ""
         course_context = (
-            f"{unit_header}\n\n" if unit_header else ""
-        ) + f"The student is studying: {study_title}{purpose_note}\n\n{study_material}"
+            (f"{skills_section}\n\n" if skills_section else "")
+            + (f"{unit_header}\n\n" if unit_header else "")
+            + f"The student is studying: {study_title}{purpose_note}\n\n{study_material}"
+        )
 
         # Detect and log what the student is struggling with
         concept = llm.detect_struggle(user_text, study_title)

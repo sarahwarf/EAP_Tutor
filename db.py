@@ -166,6 +166,22 @@ def get_materials_by_tag(tag: str) -> list[dict]:
     return results
 
 
+def get_skill_content(skill_lesson_id: str) -> str:
+    """Return combined text for a skill lesson.
+
+    Convention: Sarah uploads skill content via Telegram with a caption
+    of exactly 'skill <lesson_id>', e.g. 'skill transitions'.
+    The skill_lesson_id here is the part after 'skill '.
+    """
+    target_tag = f"skill {skill_lesson_id.lower().strip()}"
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT content FROM materials WHERE LOWER(tag) = ?",
+            (target_tag,),
+        ).fetchall()
+    return "\n\n".join(r["content"] for r in rows) if rows else ""
+
+
 def delete_material(material_id: int):
     with get_conn() as conn:
         conn.execute("DELETE FROM materials WHERE id = ?", (material_id,))
