@@ -44,7 +44,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if existing:
         # Returning student
-        await update.message.reply_text(f"Hi {name}! How can I help you today?")
+        await update.message.reply_text(
+            f"Hi {name}! How can I help you today? "
+            f"(Type /help if you want a reminder of everything I can do.)"
+        )
     else:
         # First time
         await update.message.reply_text(
@@ -59,14 +62,29 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+NORTH_STAR = (
+    "Here's what I can do:\n\n"
+    "📋 *Course questions* — Ask me anything about the course: how it's set up, "
+    "what assignments require, how grading works, important dates, or policies. "
+    "I answer strictly from the course site, so if something isn't there, I'll tell you to ask Sarah.\n\n"
+    "📖 *Study sessions* — Type /study to pick a unit and a reading. "
+    "Once you're in a session, ask me to explain concepts, summarize sections, or "
+    "talk through what you're finding confusing. I'll help you understand the material "
+    "without just reading it back to you.\n\n"
+    "🧠 *Practice quizzes* — Type /quiz at any time. "
+    "If you're in a study session, the quiz will focus on the concepts you've returned to most. "
+    "If you're not, just add a topic: /quiz Bourdieu or /quiz citation formats.\n\n"
+    "📌 *Your struggle topics* — Type /struggles to see which concepts have come up most "
+    "across your study sessions. Useful before a quiz or class discussion.\n\n"
+    "⚙️ *Preferences* — Type /settings to choose your language (English or Chinese) "
+    "and how often you want reminders.\n\n"
+    "I only know what's on the course site. I don't have access to Brightspace, "
+    "your grades, or anything outside this course."
+)
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Nova can help you with anything related to the course. Ask about how the course is structured, "
-        "what's expected of you, assignment requirements, how grading works, important dates, or course policies. "
-        "If you want to review material from the course or practice a specific skill, just ask. "
-        "Nova can also help you diagnose a problem you're running into and suggest ways to work through it.\n\n"
-        "For practice questions, type /quiz followed by any topic."
-    )
+    await update.message.reply_text(NORTH_STAR, parse_mode="Markdown")
 
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -154,11 +172,14 @@ async def study_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"The content for {material['title']} hasn't been added yet."
             )
             return
-        # Store the active material in user context so handle_message uses it
+        # Store material; ask for reading purpose before opening the session
         context.user_data["study_material"] = content
         context.user_data["study_title"] = material["title"]
+        context.user_data["awaiting_study_purpose"] = True
         await query.edit_message_text(
-            f"Ready. Ask me anything about *{material['title']}*.",
+            f"Before we start — why are you reading *{material['title']}* today?\n\n"
+            "For example: getting ready for class discussion, working on an assignment, "
+            "reviewing before a quiz, or just trying to understand it.",
             parse_mode="Markdown",
         )
 
@@ -303,6 +324,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tid = update.effective_user.id
     user_text = update.message.text
 
+    # Capture reading purpose before starting the session proper
+    if context.user_data.get("awaiting_study_purpose"):
+        context.user_data["study_purpose"] = user_text
+        context.user_data.pop("awaiting_study_purpose")
+        title = context.user_data.get("study_title", "this material")
+        await update.message.reply_text(
+            f"Got it. Ask me anything about *{title}*.",
+            parse_mode="Markdown",
+        )
+        return
+
     db.save_message(tid, "user", user_text)
     history = db.get_history(tid, limit=10)
 
@@ -311,7 +343,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     study_material = context.user_data.get("study_material")
     study_title = context.user_data.get("study_title")
     if study_material:
-        course_context = f"The student is studying: {study_title}\n\n{study_material}"
+        study_purpose = context.user_data.get("study_purpose", "")
+        purpose_note = f"\nThe student is reading this because: {study_purpose}" if study_purpose else ""
+        course_context = f"The student is studying: {study_title}{purpose_note}\n\n{study_material}"
         # Detect and log what the student is struggling with
         concept = llm.detect_struggle(user_text, study_title)
         if concept:
