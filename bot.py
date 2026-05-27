@@ -22,6 +22,8 @@ import study
 import extractor
 
 INSTRUCTOR_ID = int(os.environ.get("INSTRUCTOR_TELEGRAM_ID", "0"))
+COURSE_NAME = os.environ.get("COURSE_NAME", "the course")
+INSTRUCTOR_NAME = os.environ.get("INSTRUCTOR_NAME", "the instructor")
 logger = logging.getLogger(__name__)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -51,7 +53,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         # First time
         await update.message.reply_text(
-            f"Hi {name}! My name is Nova, and I'm the course assistant for EAP 100 Art in the City.\n\n"
+            f"Hi {name}! My name is Nova, and I'm the course assistant for {COURSE_NAME}.\n\n"
             "You can ask me anything about the course — how it's set up, what's expected, "
             "assignment requirements, grading, important dates, or course policies. "
             "If you want to review course material or work on a specific skill, I can help with that too. "
@@ -66,7 +68,7 @@ NORTH_STAR = (
     "Here's what I can do:\n\n"
     "📋 *Course questions* — Ask me anything about the course: how it's set up, "
     "what assignments require, how grading works, important dates, or policies. "
-    "I answer strictly from the course site, so if something isn't there, I'll tell you to ask Sarah.\n\n"
+    f"I answer strictly from the course site, so if something isn't there, I'll tell you to ask {INSTRUCTOR_NAME}.\n\n"
     "📖 *Study sessions* — Type /study to pick a unit and a reading. "
     "Once you're in a session, ask me to explain concepts, summarize sections, or "
     "talk through what you're finding confusing. I'll help you understand the material "

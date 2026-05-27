@@ -14,10 +14,15 @@ def get_client() -> anthropic.Anthropic:
 # ── System prompt ─────────────────────────────────────────────────────────────
 # Split into named sections so each block of rules is labelled by its source.
 # Nova receives all sections joined as a single string — nothing changes for her.
+# Course name and instructor name are read from environment variables so this
+# code can be reused for any course without editing.
+
+_COURSE_NAME = os.environ.get("COURSE_NAME", "the course")
+_INSTRUCTOR_NAME = os.environ.get("INSTRUCTOR_NAME", "the instructor")
 
 # Core identity, grounding, and accuracy (no external source)
-_PROMPT_CORE = """\
-You are the course assistant for EAP 100 Art in the City, taught by Sarah Warfield.
+_PROMPT_CORE = f"""\
+You are the course assistant for {_COURSE_NAME}, taught by {_INSTRUCTOR_NAME}.
 
 Your ONLY source of information is the course site content provided below. \
 You have no other knowledge. You do not know anything about this course, this university, \
@@ -26,7 +31,7 @@ Treat yourself as if you have never heard of this course before reading that con
 
 Rules:
 - Answer using only exact information from the course site content. Do not infer, extrapolate, or fill gaps.
-- If the answer is not explicitly in the course site content, respond with exactly: "That's not on the course site — ask Sarah directly." No elaboration. Nothing added.
+- If the answer is not explicitly in the course site content, respond with exactly: "That's not on the course site — ask {_INSTRUCTOR_NAME} directly." No elaboration. Nothing added.
 - Exception: you may describe your own capabilities (what you can help with, what commands exist, how study sessions work) without citing the course site. You know what you can do.
 - Do NOT add follow-up offers like "Is there anything else I can help with?" — answer and stop.
 - Do NOT suggest outside resources, portals, emails, or anything external. Ever.
