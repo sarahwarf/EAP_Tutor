@@ -18,6 +18,10 @@ from telegram.ext import (
 import db
 import llm
 import scraper
+import study
+import extractor
+
+INSTRUCTOR_ID = int(os.environ.get("INSTRUCTOR_TELEGRAM_ID", "0"))
 logger = logging.getLogger(__name__)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,30 +38,34 @@ async def _ensure_student(update: Update):
 # ── Command handlers ──────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    existing = db.get_student(update.effective_user.id)
     await _ensure_student(update)
     name = _student_name(update)
-    await update.message.reply_text(
-        f"Hi {name}! I'm your course assistant.\n\n"
-        "I can answer questions about course material, generate practice quizzes, "
-        "and help you when you're stuck.\n\n"
-        "Commands:\n"
-        "/help — what I can do\n"
-        "/quiz [topic] — generate a practice quiz\n"
-        "/settings — configure reminders and language\n"
-        "/struggles — see topics you've asked about most\n\n"
-        "Or just ask me anything about the course."
-    )
+
+    if existing:
+        # Returning student
+        await update.message.reply_text(f"Hi {name}! How can I help you today?")
+    else:
+        # First time
+        await update.message.reply_text(
+            f"Hi {name}! My name is Nova, and I'm the course assistant for EAP 100 Art in the City.\n\n"
+            "You can ask me anything about the course — how it's set up, what's expected, "
+            "assignment requirements, grading, important dates, or course policies. "
+            "If you want to review course material or work on a specific skill, I can help with that too. "
+            "And if you're stuck on something, I can help you figure out what's going on and what to do next.\n\n"
+            "Use /quiz to generate practice questions on any topic, "
+            "or /help if you want a reminder of what I can do.\n\n"
+            "Just type your question to get started."
+        )
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "*What I can do:*\n\n"
-        "• Answer questions grounded in the syllabus and readings\n"
-        "• Generate multiple-choice quizzes on any topic\n"
-        "• Track concepts you've struggled with over the semester\n"
-        "• Send reminders about deadlines and readings (configure via /settings)\n\n"
-        "Just type a question to get started.",
-        parse_mode="Markdown",
+        "Nova can help you with anything related to the course. Ask about how the course is structured, "
+        "what's expected of you, assignment requirements, how grading works, important dates, or course policies. "
+        "If you want to review material from the course or practice a specific skill, just ask. "
+        "Nova can also help you diagnose a problem you're running into and suggest ways to work through it.\n\n"
+        "For practice questions, type /quiz followed by any topic."
     )
 
 
@@ -97,13 +105,182 @@ async def settings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"Reminder frequency set to: {freq}.")
 
 
+async def cmd_study(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _ensure_student(update)
+    units = study.get_unit_list()
+    if not units:
+        await update.message.reply_text("No units are available yet.")
+        return
+    keyboard = [
+        [InlineKeyboardButton(u["name"], callback_data=f"study_unit_{u['id']}")]
+        for u in units
+    ]
+    await update.message.reply_text(
+        "Which unit are you working on?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def study_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data.startswith("study_unit_"):
+        unit_id = data.replace("study_unit_", "")
+        materials = study.get_materials_for_unit(unit_id)
+        if not materials:
+            await query.edit_message_text("No materials available for that unit yet.")
+            return
+        keyboard = [
+            [InlineKeyboardButton(m["title"], callback_data=f"study_mat_{unit_id}_{m['id']}")]
+            for m in materials
+        ]
+        await query.edit_message_text(
+            "Which material are you working on?",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    elif data.startswith("study_mat_"):
+        _, _, unit_id, mat_id = data.split("_", 3)
+        materials = study.get_materials_for_unit(unit_id)
+        material = next((m for m in materials if m["id"] == mat_id), None)
+        if not material:
+            await query.edit_message_text("Material not found.")
+            return
+        content = study.load_material_text(material["file"])
+        if not content:
+            await query.edit_message_text(
+                f"The content for {material['title']} hasn't been added yet."
+            )
+            return
+        # Store the active material in user context so handle_message uses it
+        context.user_data["study_material"] = content
+        context.user_data["study_title"] = material["title"]
+        await query.edit_message_text(
+            f"Ready. Ask me anything about *{material['title']}*.",
+            parse_mode="Markdown",
+        )
+
+
 async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _ensure_student(update)
-    topic = " ".join(context.args) if context.args else "the most recent readings"
-    await update.message.reply_text(f"Generating a quiz on '{topic}'...")
-    materials = await scraper.fetch_course_materials()
-    quiz_text = llm.generate_quiz(topic, materials)
+    tid = update.effective_user.id
+
+    study_material = context.user_data.get("study_material")
+    study_title = context.user_data.get("study_title")
+
+    if study_material:
+        # In a study session — use the material and the student's logged struggles
+        struggles = db.get_top_struggles(tid, n=5)
+        struggle_topics = [s["topic"] for s in struggles] if struggles else None
+        if struggle_topics:
+            await update.message.reply_text(
+                f"Generating a quiz based on what you struggled with in *{study_title}*...",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text(
+                f"Generating a quiz on *{study_title}*...",
+                parse_mode="Markdown",
+            )
+        quiz_text = llm.generate_quiz(study_title, study_material, struggle_topics=struggle_topics)
+    else:
+        # Outside a study session — general quiz
+        topic = " ".join(context.args) if context.args else "the course material"
+        await update.message.reply_text(f"Generating a quiz on '{topic}'...")
+        materials = await scraper.fetch_course_materials()
+        quiz_text = llm.generate_quiz(topic, materials)
+
     await update.message.reply_text(quiz_text)
+
+
+# ── Instructor commands ───────────────────────────────────────────────────────
+
+def _is_instructor(update: Update) -> bool:
+    return update.effective_user.id == INSTRUCTOR_ID
+
+
+async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_instructor(update):
+        return
+    note = " ".join(context.args)
+    if not note:
+        await update.message.reply_text("Usage: /note Your observation here")
+        return
+    db.save_instructor_note(note)
+    await update.message.reply_text("Note saved.")
+
+
+async def cmd_clearnotes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_instructor(update):
+        return
+    db.clear_instructor_notes()
+    await update.message.reply_text("All instructor notes cleared.")
+
+
+async def cmd_materials(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List all uploaded materials."""
+    if not _is_instructor(update):
+        return
+    all_materials = db.get_all_materials()
+    if not all_materials:
+        await update.message.reply_text("No materials uploaded yet.")
+        return
+    lines = "\n".join(f"[{m['id']}] {m['tag']} ({m['file_type']}) — {m['uploaded_at'][:10]}" for m in all_materials)
+    await update.message.reply_text(f"*Uploaded materials:*\n{lines}", parse_mode="Markdown")
+
+
+async def cmd_deletematerial(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Delete a material by ID."""
+    if not _is_instructor(update):
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /deletematerial <id>")
+        return
+    try:
+        material_id = int(context.args[0])
+        db.delete_material(material_id)
+        await update.message.reply_text(f"Material {material_id} deleted.")
+    except ValueError:
+        await update.message.reply_text("Please provide a valid numeric ID.")
+
+
+async def handle_instructor_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle a file sent by the instructor with a caption as the tag."""
+    if not _is_instructor(update):
+        return
+
+    doc = update.message.document
+    caption = (update.message.caption or "").strip()
+
+    if not caption:
+        await update.message.reply_text(
+            "Please include a caption describing what this is, e.g. 'unit1 reading2' or 'midterm rubric'."
+        )
+        return
+
+    await update.message.reply_text(f"Processing '{caption}'...")
+
+    # Download file
+    file = await context.bot.get_file(doc.file_id)
+    file_bytes = bytes(await file.download_as_bytearray())
+
+    # Extract text
+    try:
+        text, file_type = extractor.extract(file_bytes, doc.file_name or "file.txt")
+    except Exception as e:
+        await update.message.reply_text(f"Could not read file: {e}")
+        return
+
+    if not text.strip():
+        await update.message.reply_text("The file appears to be empty or unreadable.")
+        return
+
+    db.save_material(caption, text, file_type)
+    await update.message.reply_text(
+        f"Saved as '{caption}' ({file_type}, {len(text):,} chars)."
+    )
 
 
 async def cmd_struggles(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,12 +305,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db.save_message(tid, "user", user_text)
     history = db.get_history(tid, limit=10)
-    materials = await scraper.fetch_course_materials()
+
+    # If a study session is active, use that material as context
+    # Otherwise fall back to the course site
+    study_material = context.user_data.get("study_material")
+    study_title = context.user_data.get("study_title")
+    if study_material:
+        course_context = f"The student is studying: {study_title}\n\n{study_material}"
+        # Detect and log what the student is struggling with
+        concept = llm.detect_struggle(user_text, study_title)
+        if concept:
+            db.log_struggle(tid, concept)
+    else:
+        course_context = await scraper.fetch_course_materials()
+
+    # Pull this week's instructor notes and include them in every conversation
+    instructor_notes = db.get_recent_instructor_notes(days=7)
+    notes_context = "\n".join(f"- {n['note']}" for n in instructor_notes) if instructor_notes else ""
 
     reply = llm.chat(
-        history=history[:-1],  # exclude the message we just saved
+        history=history[:-1],
         user_message=user_text,
-        course_context=materials,
+        course_context=course_context,
+        instructor_notes=notes_context,
         student_name=_student_name(update),
     )
 
@@ -166,8 +360,15 @@ def main():
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("settings", cmd_settings))
     app.add_handler(CommandHandler("quiz", cmd_quiz))
+    app.add_handler(CommandHandler("study", cmd_study))
     app.add_handler(CommandHandler("struggles", cmd_struggles))
+    app.add_handler(CommandHandler("note", cmd_note))
+    app.add_handler(CommandHandler("clearnotes", cmd_clearnotes))
+    app.add_handler(CommandHandler("materials", cmd_materials))
+    app.add_handler(CommandHandler("deletematerial", cmd_deletematerial))
     app.add_handler(CallbackQueryHandler(settings_callback, pattern="^set_"))
+    app.add_handler(CallbackQueryHandler(study_callback, pattern="^study_"))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_instructor_file))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot starting...")

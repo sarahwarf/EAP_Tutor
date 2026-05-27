@@ -43,6 +43,20 @@ def init_db():
                 last_seen       TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (telegram_id) REFERENCES students(telegram_id)
             );
+
+            CREATE TABLE IF NOT EXISTS materials (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                tag             TEXT NOT NULL,
+                content         TEXT NOT NULL,
+                file_type       TEXT,
+                uploaded_at     TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS instructor_notes (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                note            TEXT NOT NULL,
+                created_at      TEXT DEFAULT (datetime('now'))
+            );
         """)
 
 
@@ -117,3 +131,64 @@ def get_top_struggles(telegram_id: int, n: int = 3) -> list[dict]:
             (telegram_id, n),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Materials ─────────────────────────────────────────────────────────────────
+
+def save_material(tag: str, content: str, file_type: str):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO materials (tag, content, file_type) VALUES (?, ?, ?)",
+            (tag, content, file_type),
+        )
+
+
+def get_all_materials() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, tag, content, file_type, uploaded_at FROM materials ORDER BY uploaded_at"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_materials_by_tag(tag: str) -> list[dict]:
+    """Return materials whose tag contains any word from the search tag."""
+    words = tag.lower().split()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT tag, content FROM materials"
+        ).fetchall()
+    results = []
+    for row in rows:
+        row_tag = row["tag"].lower()
+        if any(w in row_tag for w in words):
+            results.append(dict(row))
+    return results
+
+
+def delete_material(material_id: int):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM materials WHERE id = ?", (material_id,))
+
+
+# ── Instructor notes ──────────────────────────────────────────────────────────
+
+def save_instructor_note(note: str):
+    with get_conn() as conn:
+        conn.execute("INSERT INTO instructor_notes (note) VALUES (?)", (note,))
+
+
+def get_recent_instructor_notes(days: int = 7) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT note, created_at FROM instructor_notes
+               WHERE created_at >= datetime('now', ?)
+               ORDER BY created_at DESC""",
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_instructor_notes():
+    with get_conn() as conn:
+        conn.execute("DELETE FROM instructor_notes")

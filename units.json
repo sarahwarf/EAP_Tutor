@@ -1,0 +1,15 @@
+{
+  "unit1": {
+    "name": "Unit 1",
+    "materials": [
+      {"id": "reading1", "type": "reading", "title": "Reading 1", "file": "unit1/reading1.txt"},
+      {"id": "reading2", "type": "reading", "title": "Reading 2", "file": "unit1/reading2.txt"},
+      {"id": "video1",   "type": "video",   "title": "Video 1 transcript", "file": "unit1/video1_transcript.txt"},
+      {"id": "video2",   "type": "video",   "title": "Video 2 transcript", "file": "unit1/video2_transcript.txt"}
+    ]
+  },
+  "unit2": {
+    "name": "Unit 2",
+    "materials": []
+  }
+}
