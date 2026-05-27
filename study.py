@@ -24,6 +24,20 @@ def get_materials_for_unit(unit_id: str) -> list[dict]:
     return units[unit_id]["materials"]
 
 
+def get_unit_context(unit_id: str) -> dict:
+    """Return the pedagogical context for a unit: guiding question, skill focus, artwork."""
+    units = load_units()
+    if unit_id not in units:
+        return {}
+    u = units[unit_id]
+    return {
+        "guiding_question": u.get("guiding_question", ""),
+        "skill_focus": u.get("skill_focus", ""),
+        "skill_lesson": u.get("skill_lesson", ""),
+        "artwork": u.get("artwork", ""),
+    }
+
+
 def load_material_text(file_path: str) -> str:
     """Load the text content of a material file."""
     full_path = os.path.join(MATERIALS_DIR, file_path)

@@ -1,15 +1,23 @@
 {
   "unit1": {
-    "name": "Unit 1",
+    "name": "Unit 1: Foundations in Art Theory",
+    "guiding_question": "How does art theory help us understand art's role in society?",
+    "skill_focus": "Language for transitions",
+    "skill_lesson": "transitions",
+    "artwork": "Piet Mondrian, Broadway Boogie Woogie, 1942–43 (MoMA: https://www.moma.org/collection/works/78682)",
     "materials": [
-      {"id": "reading1", "type": "reading", "title": "Reading 1", "file": "unit1/reading1.txt"},
-      {"id": "reading2", "type": "reading", "title": "Reading 2", "file": "unit1/reading2.txt"},
-      {"id": "video1",   "type": "video",   "title": "Video 1 transcript", "file": "unit1/video1_transcript.txt"},
-      {"id": "video2",   "type": "video",   "title": "Video 2 transcript", "file": "unit1/video2_transcript.txt"}
+      {"id": "reading1", "type": "reading", "title": "How to Look at Art and Understand What You See", "file": "unit1/reading1.txt"},
+      {"id": "reading2", "type": "reading", "title": "Introduction to Art Historical Analysis", "file": "unit1/reading2.txt"},
+      {"id": "video1",   "type": "video",   "title": "Who Decides What Art Means? (TED-Ed)", "file": "unit1/video1_transcript.txt"},
+      {"id": "video2",   "type": "video",   "title": "The Definition of Art (The Art Assignment)", "file": "unit1/video2_transcript.txt"}
     ]
   },
   "unit2": {
     "name": "Unit 2",
+    "guiding_question": "",
+    "skill_focus": "",
+    "skill_lesson": "",
+    "artwork": "",
     "materials": []
   }
 }

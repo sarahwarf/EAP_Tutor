@@ -152,6 +152,8 @@ async def study_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not materials:
             await query.edit_message_text("No materials available for that unit yet.")
             return
+        # Store unit context now so it's available throughout the session
+        context.user_data["unit_context"] = study.get_unit_context(unit_id)
         keyboard = [
             [InlineKeyboardButton(m["title"], callback_data=f"study_mat_{unit_id}_{m['id']}")]
             for m in materials
@@ -346,8 +348,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     study_title = context.user_data.get("study_title")
     if study_material:
         study_purpose = context.user_data.get("study_purpose", "")
+        unit_ctx = context.user_data.get("unit_context", {})
+
+        # Build unit-level framing for Nova
+        unit_parts = []
+        if unit_ctx.get("guiding_question"):
+            unit_parts.append(f"Unit guiding question: {unit_ctx['guiding_question']}")
+        if unit_ctx.get("skill_focus"):
+            skill = unit_ctx["skill_focus"]
+            unit_parts.append(
+                f"Speaking & listening skill focus for this unit: {skill}. "
+                f"There is a dedicated lesson on this in the course skills module."
+            )
+        if unit_ctx.get("artwork"):
+            unit_parts.append(f"Featured artwork for this unit: {unit_ctx['artwork']}")
+        unit_header = "\n".join(unit_parts)
+
         purpose_note = f"\nThe student is reading this because: {study_purpose}" if study_purpose else ""
-        course_context = f"The student is studying: {study_title}{purpose_note}\n\n{study_material}"
+        course_context = (
+            f"{unit_header}\n\n" if unit_header else ""
+        ) + f"The student is studying: {study_title}{purpose_note}\n\n{study_material}"
+
         # Detect and log what the student is struggling with
         concept = llm.detect_struggle(user_text, study_title)
         if concept:
