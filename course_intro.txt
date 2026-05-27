@@ -1,0 +1,3 @@
+[Paste course introduction content here.
+This file is included in Nova's context for every conversation.
+Replace this placeholder with the full text of your class intro PDF.]

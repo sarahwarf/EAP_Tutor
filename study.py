@@ -4,6 +4,23 @@ import db
 
 UNITS_FILE = os.path.join(os.path.dirname(__file__), "units.json")
 MATERIALS_DIR = os.path.join(os.path.dirname(__file__), "materials")
+COURSE_INTRO_FILE = os.path.join(os.path.dirname(__file__), "course_intro.txt")
+
+
+def get_course_intro() -> str:
+    """Return the static course introduction text.
+
+    This is foundational context included in every conversation.
+    To use this code for a different course, replace course_intro.txt.
+    """
+    if not os.path.exists(COURSE_INTRO_FILE):
+        return ""
+    with open(COURSE_INTRO_FILE) as f:
+        content = f.read().strip()
+    # Skip placeholder
+    if content.startswith("[Paste"):
+        return ""
+    return content
 
 
 def load_units() -> dict:

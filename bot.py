@@ -394,6 +394,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         course_context = await scraper.fetch_course_materials()
 
+    # Prepend course intro to every conversation (foundational, always present)
+    course_intro = study.get_course_intro()
+    if course_intro:
+        course_context = f"## Course Introduction\n{course_intro}\n\n{course_context}"
+
     # Pull this week's instructor notes and include them in every conversation
     instructor_notes = db.get_recent_instructor_notes(days=7)
     notes_context = "\n".join(f"- {n['note']}" for n in instructor_notes) if instructor_notes else ""
