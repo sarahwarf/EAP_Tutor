@@ -1,3 +1,69 @@
-[Paste course introduction content here.
-This file is included in Nova's context for every conversation.
-Replace this placeholder with the full text of your class intro PDF.]
+EAP 100: Introduction to the Course
+Instructor: Sarah Warfield
+NYU Shanghai
+
+COURSE STRUCTURE
+This course meets two days a week. Students are expected to complete approximately five hours of homework per week. Weekly homework is the same for every unit and uses the same rubric each time. It counts toward participation.
+
+Weekly homework has three parts:
+- ChatPDF Padlet (for readings)
+- Response to Videos (for videos)
+- Prediction Activity 1 and 2 (for the main lecture)
+
+Students must bring handwritten notes to class every day.
+
+COURSE CONTENT
+The course content is presented in English. Students may find it easier to use their first language (L1) when studying content outside of class. In class, all discussion should be in English.
+
+SKILLS
+The course develops two core academic English skills:
+- Listening Skills: how to listen to and take notes on academic lectures
+- Speaking Skills: how to give an academic presentation
+
+Skills modules are available on Brightspace and are practiced during classroom activities.
+
+HOW TO WATCH VIDEOS
+Students should watch each video three times:
+1. First time: no subtitles, take notes
+2. Second time: no subtitles, add to your notes
+3. Third time: with subtitles, watch to learn vocabulary
+
+Research shows that reading and listening in the same language improves vocabulary, reading speed, listening, and speaking fluency. Listening in one language while reading in another makes the brain work too hard and reduces learning.
+
+TOOLS SARAH RECOMMENDS FOR STUDYING VIDEOS
+Sarah introduced these tools on the first day of class. Students can use them to help with video homework:
+
+- 4K Video Downloader: download YouTube videos so you do not need to worry about ads, VPN, or wifi. You can also control playback speed.
+- AdBlock: removes ads when watching videos in a browser.
+- Downsub: download subtitles for YouTube videos before watching. Download in English or Chinese. If Chinese, read them quickly before watching. If English, upload to Gemini for a quick summary.
+- Google Gemini (login with your nyu.edu account): use to get summaries of readings or subtitles. You can paste a URL or text directly into Gemini.
+
+The recommended video-watching approach with these tools:
+1. Use Downsub to download subtitles first.
+2. If subtitles are in Chinese, read them quickly for a preview.
+3. If subtitles are in English, paste them into Gemini for a quick summary.
+4. Then watch the video three times (no subtitles, no subtitles, then with subtitles).
+
+ASSIGNMENTS
+- Daily homework (readings, videos, main lecture)
+- Midterm Presentation
+- Final Presentation
+- Group Assignment
+
+PARTICIPATION AND CLASS RULES
+- No technology during class (phones and laptops away)
+- English-only zone during class — challenge yourself to use English in cross-cultural settings
+- Do not talk to a neighbor when Sarah or another student is speaking
+- Bring handwritten notes to class every day
+- Weekly feedback is given on participation
+- Failure to follow the major rules results in a lower participation grade. No exceptions.
+
+HOW TO EARN AN A
+- Pay close attention to your participation grade. It does not change retroactively.
+- Complete weekly assignments correctly and on time — this affects participation.
+- Study the rubric for the midterm and final presentation carefully (same rubric for both).
+- Take listening homework seriously — there are midterm and final listening exams.
+- Do not use ChatGPT for weekly homework when Sarah asks you not to. If you are struggling, come and talk to Sarah instead.
+
+SARAH'S COMMITMENT
+Sarah will do everything she can to help. Students are encouraged to work together with her.
