@@ -22,6 +22,7 @@ import study
 import extractor
 
 INSTRUCTOR_ID = int(os.environ.get("INSTRUCTOR_TELEGRAM_ID", "0"))
+SETUP_CODE = os.environ.get("SETUP_CODE", "")
 COURSE_NAME = os.environ.get("COURSE_NAME", "the course")
 INSTRUCTOR_NAME = os.environ.get("INSTRUCTOR_NAME", "the instructor")
 logger = logging.getLogger(__name__)
@@ -224,7 +225,45 @@ async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Instructor commands ───────────────────────────────────────────────────────
 
 def _is_instructor(update: Update) -> bool:
-    return update.effective_user.id == INSTRUCTOR_ID
+    tid = update.effective_user.id
+    # Env var takes priority (legacy / override)
+    if INSTRUCTOR_ID and tid == INSTRUCTOR_ID:
+        return True
+    # DB-registered instructor (set via /setup command)
+    stored = db.get_setting("instructor_id")
+    return stored is not None and tid == int(stored)
+
+
+async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Allow an instructor to register themselves by providing the setup code."""
+    if not SETUP_CODE:
+        await update.message.reply_text("Setup code not configured on this bot.")
+        return
+
+    # If someone is already registered, block further attempts
+    existing = db.get_setting("instructor_id")
+    if existing:
+        if update.effective_user.id == int(existing):
+            await update.message.reply_text("You are already registered as the instructor.")
+        else:
+            await update.message.reply_text("An instructor is already registered on this bot.")
+        return
+
+    provided = " ".join(context.args) if context.args else ""
+    if provided == SETUP_CODE:
+        db.set_setting("instructor_id", str(update.effective_user.id))
+        await update.message.reply_text(
+            f"✅ You are now registered as the instructor for {COURSE_NAME}.\n\n"
+            "You now have access to instructor commands:\n"
+            "`/note` — push a weekly observation\n"
+            "`/clearnotes` — clear instructor notes\n"
+            "`/materials` — list uploaded materials\n"
+            "`/deletematerial <id>` — delete a material\n\n"
+            "Send any file with a caption to upload course content.",
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text("Incorrect setup code. Try again or check your .env.")
 
 
 async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -437,6 +476,7 @@ def main():
     app = Application.builder().token(token).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("setup", cmd_setup))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("settings", cmd_settings))
     app.add_handler(CommandHandler("quiz", cmd_quiz))
