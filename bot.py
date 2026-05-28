@@ -253,17 +253,204 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if provided == SETUP_CODE:
         db.set_setting("instructor_id", str(update.effective_user.id))
         await update.message.reply_text(
-            f"✅ You are now registered as the instructor for {COURSE_NAME}.\n\n"
-            "You now have access to instructor commands:\n"
-            "`/note` — push a weekly observation\n"
-            "`/clearnotes` — clear instructor notes\n"
-            "`/materials` — list uploaded materials\n"
-            "`/deletematerial <id>` — delete a material\n\n"
-            "Send any file with a caption to upload course content.",
+            "✅ You're registered. Let's set up your course now.\n\n"
+            "I'll ask you 10 questions. At the end, Nova will be ready for your students. "
+            "Type /skiponboarding at any time to finish early and set things up later.\n\n"
+            "─────────────────\n"
+            "*Step 1 of 10*\n"
+            "What is the name of your course?\n"
+            "_e.g. EAP 100 Art in the City_",
             parse_mode="Markdown",
         )
+        context.user_data["onboarding"] = {"step": "course_name", "units": {}}
     else:
         await update.message.reply_text("Incorrect setup code. Try again or check your .env.")
+
+
+# ── Onboarding flow ───────────────────────────────────────────────────────────
+
+async def _onboarding_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle each step of the instructor onboarding flow."""
+    ob = context.user_data.get("onboarding", {})
+    step = ob.get("step")
+    text = update.message.text.strip() if update.message.text else ""
+
+    async def ask(msg):
+        await update.message.reply_text(msg, parse_mode="Markdown")
+
+    if step == "course_name":
+        db.set_setting("course_name", text)
+        ob["step"] = "instructor_name"
+        await ask("*Step 2 of 10*\nWhat is your name?\n_e.g. Sarah Warfield_")
+
+    elif step == "instructor_name":
+        db.set_setting("instructor_name", text)
+        ob["step"] = "booking_link"
+        await ask(
+            "*Step 3 of 10*\n"
+            "What's your booking link so students can schedule time with you?\n"
+            "_e.g. https://calendly.com/yourname — or type 'skip'_"
+        )
+
+    elif step == "booking_link":
+        if text.lower() != "skip":
+            db.set_setting("booking_link", text)
+        ob["step"] = "site_url"
+        await ask(
+            "*Step 4 of 10*\n"
+            "What is your course website URL? Nova will read it automatically.\n"
+            "_e.g. https://sites.google.com/view/yourcourse/home — or type 'skip'_"
+        )
+
+    elif step == "site_url":
+        if text.lower() != "skip":
+            db.set_setting("site_url", text)
+        ob["step"] = "course_intro"
+        await ask(
+            "*Step 5 of 10*\n"
+            "Upload your course introduction document — your first-day handout, "
+            "syllabus overview, or any document that explains the course to students. "
+            "Nova will use it to answer questions about how the course works.\n\n"
+            "_Send the file now, or type 'skip'_"
+        )
+
+    elif step == "course_intro":
+        # Text 'skip' — file upload is handled separately in handle_onboarding_file
+        ob["step"] = "unit_name"
+        ob["unit_number"] = 1
+        await ask(
+            "*Step 6 of 10*\n"
+            "Now let's set up your units. You can add up to 6.\n\n"
+            "*Unit 1 — what is it called?*\n"
+            "_e.g. Unit 1: Foundations in Art Theory_"
+        )
+
+    elif step == "unit_name":
+        n = ob.get("unit_number", 1)
+        ob.setdefault("units", {})[f"unit{n}"] = {"name": text, "materials": []}
+        ob["step"] = "unit_question"
+        await ask(
+            f"*Unit {n} — what is the guiding question?*\n"
+            "_e.g. How does art theory help us understand art's role in society? — or type 'skip'_"
+        )
+
+    elif step == "unit_question":
+        n = ob.get("unit_number", 1)
+        if text.lower() != "skip":
+            ob["units"][f"unit{n}"]["guiding_question"] = text
+        ob["step"] = "unit_skill"
+        await ask(
+            f"*Unit {n} — what academic English skill does this unit focus on?*\n"
+            "_e.g. Language for transitions — or type 'skip'_"
+        )
+
+    elif step == "unit_skill":
+        n = ob.get("unit_number", 1)
+        if text.lower() != "skip":
+            skill = text
+            ob["units"][f"unit{n}"]["skill_focus"] = skill
+            ob["units"][f"unit{n}"]["skill_lesson"] = skill.lower().replace(" ", "_")
+        ob["step"] = "unit_more"
+        count = len(ob["units"])
+        if count < 6:
+            await ask(
+                f"✓ Unit {n} saved.\n\n"
+                f"Do you have another unit to add? _(you've added {count} so far, max 6)_\n"
+                "Type *yes* to add another or *done* to finish."
+            )
+        else:
+            await _onboarding_complete(update, context)
+            return
+
+    elif step == "unit_more":
+        if text.lower() in ("yes", "y"):
+            n = ob.get("unit_number", 1) + 1
+            ob["unit_number"] = n
+            ob["step"] = "unit_name"
+            await ask(
+                f"*Unit {n} — what is it called?*\n"
+                "_e.g. Unit 2: Art and Public Space_"
+            )
+        else:
+            await _onboarding_complete(update, context)
+            return
+
+    context.user_data["onboarding"] = ob
+
+
+async def handle_onboarding_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle a file uploaded during the course intro step of onboarding."""
+    ob = context.user_data.get("onboarding", {})
+    if ob.get("step") != "course_intro":
+        return False  # Not in the right onboarding step
+
+    doc = update.message.document
+    file = await context.bot.get_file(doc.file_id)
+    file_bytes = bytes(await file.download_as_bytearray())
+    try:
+        text, _ = extractor.extract(file_bytes, doc.file_name or "intro.txt")
+    except Exception as e:
+        await update.message.reply_text(f"Couldn't read that file: {e}. Type 'skip' to continue.")
+        return True
+
+    if text.strip():
+        db.set_setting("course_intro", text.strip())
+        await update.message.reply_text("✓ Course intro saved.")
+    else:
+        await update.message.reply_text("File seemed empty. You can upload it later via Telegram.")
+
+    # Advance to next step
+    ob["step"] = "course_intro"
+    context.user_data["onboarding"] = ob
+    await _onboarding_next(update, context)
+    return True
+
+
+async def _onboarding_complete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save all onboarding data and show the completion message."""
+    import json as _json
+    ob = context.user_data.get("onboarding", {})
+    units = ob.get("units", {})
+
+    # Fill in defaults for any missing fields
+    for uid, u in units.items():
+        u.setdefault("guiding_question", "")
+        u.setdefault("skill_focus", "")
+        u.setdefault("skill_lesson", "")
+        u.setdefault("artwork", "")
+
+    if units:
+        db.set_setting("units_config", _json.dumps(units))
+
+    # Build summary
+    course = db.get_setting("course_name") or COURSE_NAME
+    instructor = db.get_setting("instructor_name") or INSTRUCTOR_NAME
+    booking = db.get_setting("booking_link") or "not set"
+    site = db.get_setting("site_url") or "not set"
+    intro = "uploaded ✓" if db.get_setting("course_intro") else "not uploaded"
+    unit_lines = "\n".join(
+        f"  • {u.get('name', f'Unit {i+1}')} — {u.get('skill_focus', 'no skill set')}"
+        for i, u in enumerate(units.values())
+    ) or "  none added"
+
+    context.user_data.pop("onboarding", None)
+
+    await update.message.reply_text(
+        f"🎉 *Nova is set up for your course.*\n\n"
+        f"*Course:* {course}\n"
+        f"*Instructor:* {instructor}\n"
+        f"*Booking link:* {booking}\n"
+        f"*Course site:* {site}\n"
+        f"*Course intro:* {intro}\n"
+        f"*Units:*\n{unit_lines}\n\n"
+        "─────────────────\n"
+        "From here, use Telegram to upload readings, transcripts, and skill content "
+        "as you build the course. Type /help for the full list of instructor commands.\n\n"
+        "If you want to change how Nova behaves — her pedagogical approach, the rules "
+        "she follows, or how she scaffolds students — you can fork the code and customize it:\n"
+        "github.com/sarahwarf/EAP\\_Tutor",
+        parse_mode="Markdown",
+    )
 
 
 async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -316,6 +503,12 @@ async def handle_instructor_file(update: Update, context: ContextTypes.DEFAULT_T
     if not _is_instructor(update):
         return
 
+    # During onboarding, the course_intro step accepts a file upload
+    if context.user_data.get("onboarding", {}).get("step") == "course_intro":
+        handled = await handle_onboarding_file(update, context)
+        if handled:
+            return
+
     doc = update.message.document
     caption = (update.message.caption or "").strip()
 
@@ -363,10 +556,26 @@ async def cmd_struggles(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── General message handler ───────────────────────────────────────────────────
 
+async def cmd_skiponboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Let the instructor bail out of onboarding early."""
+    if not _is_instructor(update):
+        return
+    context.user_data.pop("onboarding", None)
+    await update.message.reply_text(
+        "Onboarding skipped. Nova is still usable — you can always add content via Telegram.\n"
+        "Type /help for the full list of instructor commands."
+    )
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _ensure_student(update)
     tid = update.effective_user.id
     user_text = update.message.text
+
+    # Route instructor messages to onboarding if that flow is active
+    if context.user_data.get("onboarding") and _is_instructor(update):
+        await _onboarding_next(update, context)
+        return
 
     # Capture reading purpose before starting the session proper
     if context.user_data.get("awaiting_study_purpose"):
@@ -486,6 +695,7 @@ def main():
     app.add_handler(CommandHandler("clearnotes", cmd_clearnotes))
     app.add_handler(CommandHandler("materials", cmd_materials))
     app.add_handler(CommandHandler("deletematerial", cmd_deletematerial))
+    app.add_handler(CommandHandler("skiponboarding", cmd_skiponboarding))
     app.add_handler(CallbackQueryHandler(settings_callback, pattern="^set_"))
     app.add_handler(CallbackQueryHandler(study_callback, pattern="^study_"))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_instructor_file))
