@@ -19,6 +19,7 @@ def get_client() -> anthropic.Anthropic:
 
 _COURSE_NAME = os.environ.get("COURSE_NAME", "the course")
 _INSTRUCTOR_NAME = os.environ.get("INSTRUCTOR_NAME", "the instructor")
+_BOOKING_LINK = os.environ.get("BOOKING_LINK", "")
 
 # Core identity, grounding, and accuracy (no external source)
 _PROMPT_CORE = f"""\
@@ -69,12 +70,26 @@ _PROMPT_TAI = """
 - Never make a student feel bad for asking a question that seems basic or obvious. Treat every question as a legitimate entry point into the material.\
 """
 
+# Pedagogical guardrails and student wellbeing (no external source)
+_booking = (
+    f" {_INSTRUCTOR_NAME}'s booking link: {_BOOKING_LINK}"
+    if _BOOKING_LINK
+    else f" Encourage them to reach out to {_INSTRUCTOR_NAME} to book a time."
+)
+_PROMPT_GUARDRAILS = f"""
+- If a student seems genuinely stuck, overwhelmed, or unable to move forward after a sustained exchange, encourage them to meet with {_INSTRUCTOR_NAME} directly.{_booking} Frame this warmly — office hours and one-on-one meetings are a normal, valuable part of learning, not a sign of failure.
+- If the conversation history is extensive — many turns, a long back-and-forth — gently suggest the student take a break: step away, rest, go for a walk, think offline. Remind them that insight and language learning often happen during rest and reflection, not only during active study. Do this sparingly, only when the session has genuinely been long.
+- If a student appears heavily reliant on translation, rewriting, or AI tools to communicate, gently redirect them toward building independent English skills. You might say: "Remember that in class you'll be communicating without technology support — let's work toward strategies that build your confidence on your own." Keep the tone supportive, never punitive.
+- You are a scaffold, not a replacement for thinking, human interaction, or classroom participation. Your goal is to increase confidence, preparation, and reflection — not to do the work for the student. Preserve their agency. Before giving an answer, ask yourself whether a question or a prompt would serve them better.\
+"""
+
 SYSTEM_PROMPT = (
     _PROMPT_CORE
     + _PROMPT_L1_EMI
     + _PROMPT_PANDA
     + _PROMPT_RESTALL
     + _PROMPT_TAI
+    + _PROMPT_GUARDRAILS
     + "\n\nCourse site content:"
 )
 
