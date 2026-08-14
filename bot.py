@@ -5,7 +5,13 @@ from dotenv import load_dotenv
 load_dotenv()  # must be before any local imports that read os.environ
 logging.basicConfig(level=logging.INFO)
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    BotCommand,
+    BotCommandScopeChat,
+)
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -26,6 +32,34 @@ SETUP_CODE = os.environ.get("SETUP_CODE", "")
 COURSE_NAME = os.environ.get("COURSE_NAME", "the course")
 INSTRUCTOR_NAME = os.environ.get("INSTRUCTOR_NAME", "the instructor")
 logger = logging.getLogger(__name__)
+
+# ── Command menus ────────────────────────────────────────────────────────────
+# Registered with Telegram so they show as an autocomplete menu when typing "/",
+# rather than requiring students or the instructor to remember them.
+
+STUDENT_COMMANDS = [
+    BotCommand("start", "Say hi to Nova"),
+    BotCommand("help", "See what Nova can do"),
+    BotCommand("study", "Start a study session on a reading or video"),
+    BotCommand("quiz", "Generate a practice quiz"),
+    BotCommand("struggles", "See your most common struggle topics"),
+    BotCommand("settings", "Set your language and reminder preferences"),
+]
+
+INSTRUCTOR_COMMANDS = [
+    BotCommand("start", "Say hi to Nova"),
+    BotCommand("help", "See instructor commands"),
+    BotCommand("note", "Tell Nova what students are struggling with"),
+    BotCommand("shownotes", "List currently active notes"),
+    BotCommand("clearnotes", "Clear all active notes"),
+    BotCommand("materials", "List uploaded materials"),
+    BotCommand("deletematerial", "Delete a material by ID"),
+    BotCommand("previewstudent", "See Nova as a student would"),
+    BotCommand("instructorview", "Switch back from preview mode"),
+    BotCommand("setup", "Register as instructor with your setup code"),
+    BotCommand("cancel", "Back out of a pending prompt"),
+]
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -99,7 +133,8 @@ NORTH_STAR = (
 INSTRUCTOR_HELP = (
     "Here's what you can do as instructor:\n\n"
     "📝 *Weekly notes* — /note asks what your students are struggling with, then turns your answer "
-    "into a concrete instruction Nova follows for the next 7 days. /clearnotes wipes all current notes.\n\n"
+    "into a concrete instruction Nova follows for the next 7 days. /shownotes lists what's currently "
+    "active. /clearnotes wipes all current notes.\n\n"
     "📚 *Materials* — Send any file with a caption (e.g. `unit1 reading1`, `skill transitions`, "
     "`pedagogy`) to upload it. Materials tagged `pedagogy` shape how Nova interprets your notes. "
     "/materials lists everything uploaded. /deletematerial <id> removes one.\n\n"
@@ -302,6 +337,9 @@ async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     provided = " ".join(context.args) if context.args else ""
     if provided == SETUP_CODE:
         db.set_setting("instructor_id", str(update.effective_user.id))
+        await context.bot.set_my_commands(
+            INSTRUCTOR_COMMANDS, scope=BotCommandScopeChat(chat_id=update.effective_user.id)
+        )
         await update.message.reply_text(
             "✅ You're registered. Let's set up your course now.\n\n"
             "I'll ask you 10 questions. At the end, Nova will be ready for your students. "
@@ -513,11 +551,24 @@ async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "What are your students struggling with, and what would you like me to do about it?\n\n"
             "If you have teaching materials, a rubric, or notes on your own practice that should shape "
             "how I respond, send them now as a file with the caption 'pedagogy' before you answer — "
-            "I'll take them into account."
+            "I'll take them into account.\n\n"
+            "(Type /cancel if you want to back out instead of answering.)"
         )
         return
     db.save_instructor_note(note)
     await update.message.reply_text("Note saved.")
+
+
+async def cmd_shownotes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """List currently active instructor notes (still within their 7-day window)."""
+    if not _is_instructor(update, context):
+        return
+    notes = db.get_recent_instructor_notes(days=7)
+    if not notes:
+        await update.message.reply_text("No active notes right now.")
+        return
+    lines = "\n\n".join(f"— {n['note']}\n({n['created_at'][:10]})" for n in notes)
+    await update.message.reply_text(f"*Active notes:*\n\n{lines}", parse_mode="Markdown")
 
 
 async def cmd_clearnotes(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -612,6 +663,21 @@ async def cmd_struggles(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── General message handler ───────────────────────────────────────────────────
 
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Back out of a pending prompt (e.g. /note waiting for an answer) without it being captured."""
+    cleared = any(
+        context.user_data.pop(key, None) is not None
+        for key in (
+            "awaiting_note",
+            "awaiting_note_confirm",
+            "pending_note_draft",
+            "pending_note_original",
+            "awaiting_study_purpose",
+        )
+    )
+    await update.message.reply_text("Cancelled." if cleared else "Nothing to cancel.")
+
+
 async def cmd_skiponboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Let the instructor bail out of onboarding early."""
     if not _is_instructor(update, context):
@@ -638,9 +704,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("awaiting_note")
         pedagogy_parts = [p for p in (study.get_default_pedagogy(), db.get_pedagogy_content()) if p]
         pedagogy_context = "\n\n".join(pedagogy_parts)
-        refined = llm.refine_note(user_text, pedagogy_context)
-        db.save_instructor_note(refined)
-        await update.message.reply_text(f"Got it. I'll do this:\n\n{refined}")
+        draft = llm.refine_note(user_text, pedagogy_context)
+        context.user_data["pending_note_draft"] = draft
+        context.user_data["pending_note_original"] = user_text
+        context.user_data["awaiting_note_confirm"] = True
+        await update.message.reply_text(
+            f"Here's my plan:\n\n{draft}\n\n"
+            f"Does that sound right? Reply to confirm, or tell me what to change."
+        )
+        return
+
+    # Confirm or revise a pending note before it's saved
+    if context.user_data.get("awaiting_note_confirm") and _is_instructor(update, context):
+        if llm.is_confirmation(user_text):
+            draft = context.user_data.pop("pending_note_draft")
+            context.user_data.pop("awaiting_note_confirm")
+            context.user_data.pop("pending_note_original", None)
+            db.save_instructor_note(draft)
+            await update.message.reply_text("Saved — I'll do that starting now.")
+        else:
+            original = context.user_data.get("pending_note_original", "")
+            pedagogy_parts = [p for p in (study.get_default_pedagogy(), db.get_pedagogy_content()) if p]
+            pedagogy_context = "\n\n".join(pedagogy_parts)
+            combined = f"{original}\n\nInstructor follow-up: {user_text}"
+            draft = llm.refine_note(combined, pedagogy_context)
+            context.user_data["pending_note_draft"] = draft
+            await update.message.reply_text(
+                f"Updated plan:\n\n{draft}\n\n"
+                f"Does that sound right? Reply to confirm, or tell me what to change."
+            )
         return
 
     # Instructor plain chat doesn't go through the student flow
@@ -740,13 +832,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def post_init(application):
-    """Fetch and cache course materials at startup."""
+    """Fetch and cache course materials, and register command menus, at startup."""
     logger.info("Fetching course site content...")
     content = await scraper.fetch_course_materials()
     if content:
         logger.info(f"Course site loaded: {len(content)} chars")
     else:
         logger.warning("Could not load course site content.")
+
+    await application.bot.set_my_commands(STUDENT_COMMANDS)
+
+    instructor_id = INSTRUCTOR_ID or None
+    if not instructor_id:
+        stored = db.get_setting("instructor_id")
+        if stored:
+            instructor_id = int(stored)
+    if instructor_id:
+        await application.bot.set_my_commands(
+            INSTRUCTOR_COMMANDS, scope=BotCommandScopeChat(chat_id=instructor_id)
+        )
 
 
 def main():
@@ -766,10 +870,12 @@ def main():
     app.add_handler(CommandHandler("study", cmd_study))
     app.add_handler(CommandHandler("struggles", cmd_struggles))
     app.add_handler(CommandHandler("note", cmd_note))
+    app.add_handler(CommandHandler("shownotes", cmd_shownotes))
     app.add_handler(CommandHandler("clearnotes", cmd_clearnotes))
     app.add_handler(CommandHandler("materials", cmd_materials))
     app.add_handler(CommandHandler("deletematerial", cmd_deletematerial))
     app.add_handler(CommandHandler("skiponboarding", cmd_skiponboarding))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("previewstudent", cmd_previewstudent))
     app.add_handler(CommandHandler("instructorview", cmd_instructorview))
     app.add_handler(CallbackQueryHandler(settings_callback, pattern="^set_"))

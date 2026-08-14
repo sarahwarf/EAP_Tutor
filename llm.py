@@ -1,14 +1,55 @@
 import os
-import anthropic
 
+# ── LLM provider ─────────────────────────────────────────────────────────────
+# Every call to a language model goes through _complete() below, so swapping
+# providers means changing environment variables, not code. Defaults to
+# Anthropic; set LLM_PROVIDER=openai to use OpenAI's API or any
+# OpenAI-compatible endpoint (DeepSeek, Qwen/Bailian, a local model server,
+# OpenRouter, etc.) by pointing OPENAI_BASE_URL at it.
+
+_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic").lower()
 _client = None
 
 
-def get_client() -> anthropic.Anthropic:
+def get_client():
+    """Return the configured LLM client, built once and reused."""
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        if _PROVIDER == "openai":
+            import openai
+            _client = openai.OpenAI(
+                api_key=os.environ["OPENAI_API_KEY"],
+                base_url=os.environ.get("OPENAI_BASE_URL") or None,
+            )
+        else:
+            import anthropic
+            _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     return _client
+
+
+def _model() -> str:
+    if _PROVIDER == "openai":
+        return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    return os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
+
+def _complete(system: str, messages: list[dict], max_tokens: int) -> str:
+    """Send a system prompt and message history to whichever provider is configured."""
+    client = get_client()
+    if _PROVIDER == "openai":
+        response = client.chat.completions.create(
+            model=_model(),
+            max_tokens=max_tokens,
+            messages=[{"role": "system", "content": system}] + messages,
+        )
+        return response.choices[0].message.content
+    response = client.messages.create(
+        model=_model(),
+        max_tokens=max_tokens,
+        system=system,
+        messages=messages,
+    )
+    return response.content[0].text
 
 
 # ── System prompt ─────────────────────────────────────────────────────────────
@@ -115,45 +156,58 @@ def chat(
         system += f"\n\nYou are speaking with {student_name}."
 
     messages = history + [{"role": "user", "content": user_message}]
-
-    response = get_client().messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
-        system=system,
-        messages=messages,
-    )
-    return response.content[0].text
+    return _complete(system=system, messages=messages, max_tokens=1024)
 
 
 def refine_note(teacher_message: str, pedagogy_context: str = "") -> str:
     """
     Turn an instructor's plain-language description of a student issue into a
-    concrete instruction for Nova to follow with students. Classifies the issue
-    as either something to actively correct, or something to model consistently
-    through Nova's own language, and grounds the phrasing in any pedagogy
-    materials the instructor has uploaded (tag: 'pedagogy').
+    concrete instruction for Nova to follow with students. Internally weighs
+    whether this is something to actively correct, or something to model
+    consistently through Nova's own language — but the output is a plain
+    description of the behavior itself, not a labeled classification, since
+    this text is shown directly to the instructor for approval.
     """
     prompt = (
         f"An instructor described this issue with their students:\n\n\"{teacher_message}\"\n\n"
-        f"Turn this into a short, concrete instruction (2-4 sentences) for an AI course assistant "
-        f"to follow when talking with students. First decide: is this a MISTAKE the assistant should "
-        f"actively notice and correct in the moment, or is it something students need repeated "
-        f"correct EXPOSURE to, where the assistant should just consistently model the right language "
-        f"or form itself? State the instruction plainly — do not explain your reasoning, just give "
-        f"the instruction."
+        f"Describe, in 2-3 plain sentences, what you will actually do differently when talking "
+        f"with students as a result. Decide for yourself whether this calls for actively noticing "
+        f"and correcting a mistake in the moment, or for consistently modeling the correct language "
+        f"or form yourself so students pick it up through exposure — but do not name or label that "
+        f"choice, just describe the concrete behavior naturally, as if explaining your plan to the "
+        f"instructor in conversation. Do not use headers, labels, or bullet points."
     )
     if pedagogy_context:
         prompt += (
-            f"\n\nGround your instruction in this pedagogy material the instructor has provided, "
+            f"\n\nGround your plan in this pedagogy material the instructor has provided, "
             f"if it's relevant:\n{pedagogy_context}"
         )
-    response = get_client().messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=300,
-        system="You turn an instructor's informal observation into a clear instruction for an AI course assistant.",
+    return _complete(
+        system="You describe, in plain conversational language, what you (an AI course assistant) will do differently based on an instructor's note. No headers or labels — just the plan, as you'd say it to the instructor.",
         messages=[{"role": "user", "content": prompt}],
+        max_tokens=300,
+    ).strip()
+
+
+def is_confirmation(message: str) -> bool:
+    """
+    Return True if a message is a plain confirmation/agreement (e.g. "yes",
+    "looks good", "that works"), False if it's a request for a change,
+    a question, or anything else.
+    """
+    prompt = (
+        f"Someone was shown a proposed plan and asked if it's correct. They replied:\n\n"
+        f"\"{message}\"\n\n"
+        f"Does this reply confirm the plan as-is? Reply with ONLY 'yes' or 'no'. "
+        f"If they are asking for any change, correction, addition, or are asking a question "
+        f"instead of confirming, reply 'no'."
     )
-    return response.content[0].text.strip()
+    result = _complete(
+        system="You classify whether a reply is a plain confirmation or not. Reply with only 'yes' or 'no'.",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=10,
+    )
+    return result.strip().lower().startswith("yes")
 
 
 def detect_struggle(user_message: str, material_title: str) -> str | None:
@@ -169,13 +223,11 @@ def detect_struggle(user_message: str, material_title: str) -> str | None:
         f"If the message is not a sign of struggle (e.g. it's a greeting, a simple factual question "
         f"they already understand, or off-topic), return ONLY the word 'none'."
     )
-    response = get_client().messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=20,
+    result = _complete(
         system="You identify student struggle concepts. Reply with a short label or the word 'none'.",
         messages=[{"role": "user", "content": prompt}],
-    )
-    result = response.content[0].text.strip()
+        max_tokens=20,
+    ).strip()
     return None if result.lower() == "none" else result
 
 
@@ -195,10 +247,8 @@ def generate_quiz(topic: str, course_context: str, n: int = 3,
         f"Format each question as:\nQ: ...\nA) ...\nB) ...\nC) ...\nD) ...\nAnswer: ...\n\n"
         f"Materials:\n{course_context}"
     )
-    response = get_client().messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1024,
+    return _complete(
         system="You are a quiz generator for a university course. Be precise and fair.",
         messages=[{"role": "user", "content": prompt}],
+        max_tokens=1024,
     )
-    return response.content[0].text
