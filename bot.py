@@ -41,6 +41,16 @@ async def _ensure_student(update: Update):
 # ── Command handlers ──────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if _is_instructor(update):
+        name = update.effective_user.first_name or "there"
+        await update.message.reply_text(
+            f"Hi {name}, welcome back — you're recognized as the instructor for {COURSE_NAME}.\n\n"
+            "Instructor commands: /note /clearnotes /materials /deletematerial\n"
+            "Send any file with a caption to upload course content.\n\n"
+            "Type /help for the full list."
+        )
+        return
+
     existing = db.get_student(update.effective_user.id)
     await _ensure_student(update)
     name = _student_name(update)
