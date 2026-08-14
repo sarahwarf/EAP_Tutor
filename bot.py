@@ -41,7 +41,7 @@ async def _ensure_student(update: Update):
 # ── Command handlers ──────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if _is_instructor(update):
+    if _is_instructor(update, context):
         name = update.effective_user.first_name or "there"
         await update.message.reply_text(
             f"Hi {name}, welcome back — you're recognized as the instructor for {COURSE_NAME}.\n\n"
@@ -96,7 +96,23 @@ NORTH_STAR = (
 )
 
 
+INSTRUCTOR_HELP = (
+    "Here's what you can do as instructor:\n\n"
+    "📝 *Weekly notes* — /note Your observation to push something Nova weaves into "
+    "student responses for the next 7 days. /clearnotes wipes all current notes.\n\n"
+    "📚 *Materials* — Send any file with a caption (e.g. `unit1 reading1`, `skill transitions`) "
+    "to upload it. /materials lists everything uploaded. /deletematerial <id> removes one.\n\n"
+    "👀 *Preview mode* — /previewstudent makes Nova treat you as a student so you can see "
+    "what they see. /instructorview switches you back.\n\n"
+    "⚙️ *Setup* — /setup registers you as the instructor with your setup code (one-time).\n\n"
+    "Type /help any time to see this again."
+)
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if _is_instructor(update, context):
+        await update.message.reply_text(INSTRUCTOR_HELP, parse_mode="Markdown")
+        return
     await update.message.reply_text(NORTH_STAR, parse_mode="Markdown")
 
 
@@ -234,7 +250,9 @@ async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Instructor commands ───────────────────────────────────────────────────────
 
-def _is_instructor(update: Update) -> bool:
+def _is_instructor(update: Update, context: ContextTypes.DEFAULT_TYPE = None) -> bool:
+    if context is not None and context.user_data.get("preview_as_student"):
+        return False
     tid = update.effective_user.id
     # Env var takes priority (legacy / override)
     if INSTRUCTOR_ID and tid == INSTRUCTOR_ID:
@@ -242,6 +260,27 @@ def _is_instructor(update: Update) -> bool:
     # DB-registered instructor (set via /setup command)
     stored = db.get_setting("instructor_id")
     return stored is not None and tid == int(stored)
+
+
+async def cmd_previewstudent(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Let the real instructor temporarily see the bot as a student would."""
+    if not _is_instructor(update, context):
+        return
+    context.user_data["preview_as_student"] = True
+    await update.message.reply_text(
+        "Preview mode on — Nova will treat you as a student now. "
+        "Type /instructorview to switch back."
+    )
+
+
+async def cmd_instructorview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Switch the real instructor back out of student preview mode."""
+    if not (INSTRUCTOR_ID and update.effective_user.id == INSTRUCTOR_ID) and not (
+        (stored := db.get_setting("instructor_id")) and update.effective_user.id == int(stored)
+    ):
+        return
+    context.user_data.pop("preview_as_student", None)
+    await update.message.reply_text("Back to instructor view.")
 
 
 async def cmd_setup(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -464,7 +503,7 @@ async def _onboarding_complete(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not _is_instructor(update):
+    if not _is_instructor(update, context):
         return
     note = " ".join(context.args)
     if not note:
@@ -475,7 +514,7 @@ async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_clearnotes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not _is_instructor(update):
+    if not _is_instructor(update, context):
         return
     db.clear_instructor_notes()
     await update.message.reply_text("All instructor notes cleared.")
@@ -483,7 +522,7 @@ async def cmd_clearnotes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_materials(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """List all uploaded materials."""
-    if not _is_instructor(update):
+    if not _is_instructor(update, context):
         return
     all_materials = db.get_all_materials()
     if not all_materials:
@@ -495,7 +534,7 @@ async def cmd_materials(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_deletematerial(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Delete a material by ID."""
-    if not _is_instructor(update):
+    if not _is_instructor(update, context):
         return
     if not context.args:
         await update.message.reply_text("Usage: /deletematerial <id>")
@@ -510,7 +549,7 @@ async def cmd_deletematerial(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_instructor_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle a file sent by the instructor with a caption as the tag."""
-    if not _is_instructor(update):
+    if not _is_instructor(update, context):
         return
 
     # During onboarding, the course_intro step accepts a file upload
@@ -568,7 +607,7 @@ async def cmd_struggles(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_skiponboarding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Let the instructor bail out of onboarding early."""
-    if not _is_instructor(update):
+    if not _is_instructor(update, context):
         return
     context.user_data.pop("onboarding", None)
     await update.message.reply_text(
@@ -583,8 +622,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
     # Route instructor messages to onboarding if that flow is active
-    if context.user_data.get("onboarding") and _is_instructor(update):
+    if context.user_data.get("onboarding") and _is_instructor(update, context):
         await _onboarding_next(update, context)
+        return
+
+    # Instructor plain chat doesn't go through the student flow
+    if _is_instructor(update, context):
+        await update.message.reply_text(
+            "Hi! I can't hold an open conversation with you yet, but I'm happy to help another way — "
+            "type /help to see what I can do, or /previewstudent to see what your students experience."
+        )
         return
 
     # Capture reading purpose before starting the session proper
@@ -706,6 +753,8 @@ def main():
     app.add_handler(CommandHandler("materials", cmd_materials))
     app.add_handler(CommandHandler("deletematerial", cmd_deletematerial))
     app.add_handler(CommandHandler("skiponboarding", cmd_skiponboarding))
+    app.add_handler(CommandHandler("previewstudent", cmd_previewstudent))
+    app.add_handler(CommandHandler("instructorview", cmd_instructorview))
     app.add_handler(CallbackQueryHandler(settings_callback, pattern="^set_"))
     app.add_handler(CallbackQueryHandler(study_callback, pattern="^study_"))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_instructor_file))
