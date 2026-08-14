@@ -98,10 +98,11 @@ NORTH_STAR = (
 
 INSTRUCTOR_HELP = (
     "Here's what you can do as instructor:\n\n"
-    "📝 *Weekly notes* — /note Your observation to push something Nova weaves into "
-    "student responses for the next 7 days. /clearnotes wipes all current notes.\n\n"
-    "📚 *Materials* — Send any file with a caption (e.g. `unit1 reading1`, `skill transitions`) "
-    "to upload it. /materials lists everything uploaded. /deletematerial <id> removes one.\n\n"
+    "📝 *Weekly notes* — /note asks what your students are struggling with, then turns your answer "
+    "into a concrete instruction Nova follows for the next 7 days. /clearnotes wipes all current notes.\n\n"
+    "📚 *Materials* — Send any file with a caption (e.g. `unit1 reading1`, `skill transitions`, "
+    "`pedagogy`) to upload it. Materials tagged `pedagogy` shape how Nova interprets your notes. "
+    "/materials lists everything uploaded. /deletematerial <id> removes one.\n\n"
     "👀 *Preview mode* — /previewstudent makes Nova treat you as a student so you can see "
     "what they see. /instructorview switches you back.\n\n"
     "⚙️ *Setup* — /setup registers you as the instructor with your setup code (one-time).\n\n"
@@ -507,7 +508,13 @@ async def cmd_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     note = " ".join(context.args)
     if not note:
-        await update.message.reply_text("Usage: /note Your observation here")
+        context.user_data["awaiting_note"] = True
+        await update.message.reply_text(
+            "What are your students struggling with, and what would you like me to do about it?\n\n"
+            "If you have teaching materials, a rubric, or notes on your own practice that should shape "
+            "how I respond, send them now as a file with the caption 'pedagogy' before you answer — "
+            "I'll take them into account."
+        )
         return
     db.save_instructor_note(note)
     await update.message.reply_text("Note saved.")
@@ -624,6 +631,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Route instructor messages to onboarding if that flow is active
     if context.user_data.get("onboarding") and _is_instructor(update, context):
         await _onboarding_next(update, context)
+        return
+
+    # Capture note text if /note was sent without an argument
+    if context.user_data.get("awaiting_note") and _is_instructor(update, context):
+        context.user_data.pop("awaiting_note")
+        pedagogy_parts = [p for p in (study.get_default_pedagogy(), db.get_pedagogy_content()) if p]
+        pedagogy_context = "\n\n".join(pedagogy_parts)
+        refined = llm.refine_note(user_text, pedagogy_context)
+        db.save_instructor_note(refined)
+        await update.message.reply_text(f"Got it. I'll do this:\n\n{refined}")
         return
 
     # Instructor plain chat doesn't go through the student flow

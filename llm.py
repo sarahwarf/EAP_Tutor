@@ -125,6 +125,37 @@ def chat(
     return response.content[0].text
 
 
+def refine_note(teacher_message: str, pedagogy_context: str = "") -> str:
+    """
+    Turn an instructor's plain-language description of a student issue into a
+    concrete instruction for Nova to follow with students. Classifies the issue
+    as either something to actively correct, or something to model consistently
+    through Nova's own language, and grounds the phrasing in any pedagogy
+    materials the instructor has uploaded (tag: 'pedagogy').
+    """
+    prompt = (
+        f"An instructor described this issue with their students:\n\n\"{teacher_message}\"\n\n"
+        f"Turn this into a short, concrete instruction (2-4 sentences) for an AI course assistant "
+        f"to follow when talking with students. First decide: is this a MISTAKE the assistant should "
+        f"actively notice and correct in the moment, or is it something students need repeated "
+        f"correct EXPOSURE to, where the assistant should just consistently model the right language "
+        f"or form itself? State the instruction plainly — do not explain your reasoning, just give "
+        f"the instruction."
+    )
+    if pedagogy_context:
+        prompt += (
+            f"\n\nGround your instruction in this pedagogy material the instructor has provided, "
+            f"if it's relevant:\n{pedagogy_context}"
+        )
+    response = get_client().messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        system="You turn an instructor's informal observation into a clear instruction for an AI course assistant.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip()
+
+
 def detect_struggle(user_message: str, material_title: str) -> str | None:
     """
     Given a student's message during a study session, return a short concept

@@ -187,6 +187,19 @@ def get_skill_content(skill_lesson_id: str) -> str:
     return "\n\n".join(r["content"] for r in rows) if rows else ""
 
 
+def get_pedagogy_content() -> str:
+    """Return combined text of any materials the instructor has tagged 'pedagogy'.
+
+    Convention: upload a file with a caption containing the word 'pedagogy',
+    e.g. 'pedagogy' or 'pedagogy corrective feedback'.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT content FROM materials WHERE LOWER(tag) LIKE '%pedagogy%'"
+        ).fetchall()
+    return "\n\n".join(r["content"] for r in rows) if rows else ""
+
+
 def delete_material(material_id: int):
     with get_conn() as conn:
         conn.execute("DELETE FROM materials WHERE id = ?", (material_id,))

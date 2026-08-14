@@ -129,6 +129,8 @@ Once Nova is running, you manage all course content through Telegram. Send any f
 | Reading and video transcripts | Upload via Telegram | As you add materials |
 | Skills module content | Upload via Telegram with `skill` tag | When you teach each skill |
 | Weekly instructor observations | `/note` command in Telegram | Weekly |
+| Default pedagogy grounding (ships with your fork) | `pedagogy/*.txt` | Once, optional — edit or delete freely |
+| Instructor-uploaded pedagogy (local only, not forked) | Upload via Telegram with `pedagogy` tag | As needed |
 
 ---
 

@@ -5,6 +5,7 @@ import db
 UNITS_FILE = os.path.join(os.path.dirname(__file__), "units.json")
 MATERIALS_DIR = os.path.join(os.path.dirname(__file__), "materials")
 COURSE_INTRO_FILE = os.path.join(os.path.dirname(__file__), "course_intro.txt")
+PEDAGOGY_DIR = os.path.join(os.path.dirname(__file__), "pedagogy")
 
 
 def get_course_intro() -> str:
@@ -23,6 +24,26 @@ def get_course_intro() -> str:
     if content.startswith("[Paste"):
         return ""
     return content
+
+
+def get_default_pedagogy() -> str:
+    """Return combined text of any .txt files in the pedagogy/ folder.
+
+    Unlike materials uploaded via Telegram (stored in the local database),
+    this folder ships with the repo, so it's what a fork actually inherits.
+    Instructors can edit, delete, or replace these files freely.
+    """
+    if not os.path.isdir(PEDAGOGY_DIR):
+        return ""
+    texts = []
+    for fname in sorted(os.listdir(PEDAGOGY_DIR)):
+        if not fname.endswith(".txt"):
+            continue
+        with open(os.path.join(PEDAGOGY_DIR, fname)) as f:
+            content = f.read().strip()
+        if content and not content.startswith("[Paste"):
+            texts.append(content)
+    return "\n\n".join(texts)
 
 
 def load_units() -> dict:
